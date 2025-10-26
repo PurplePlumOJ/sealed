@@ -713,7 +713,7 @@
                 <a href="#how-it-works">How It Works</a>
                 <a href="#your-bids">Your Bids</a>
             </div>
-            <button class="connect-btn" id="connectBtn" onclick="connectWallet()">
+            <button class="connect-btn" id="connectBtn">
                 Connect Wallet
             </button>
         </nav>
@@ -806,27 +806,12 @@
                 name: 'Cosmic Dragon',
                 number: '#4219',
                 emoji: '🐉',
-                seller: '0x742d...bEb1',
-                endTime: Date.now() + 7200000,
-                minBid: 0.1
-            },
-            {
-                id: 2,
-                name: 'Cyber Samurai',
-                number: '#8831',
-                emoji: '⚔️',
-                seller: '0x8626...1199',
-                endTime: Date.now() + 5400000,
-                minBid: 0.05
-            },
-            {
-                id: 3,
-                name: 'Neon Dreams',
-                number: '#1203',
-                emoji: '✨',
-                seller: '0xdD2F...44C0',
-                endTime: Date.now() + 10800000,
-                minBid: 0.2
+                seller: '0xDaC2...6547',
+                endTime: Date.now() + 7200000, // Will be updated from contract
+                minBid: 0.01, // Will be updated from contract
+                contractAddress: AUCTION_ADDRESS,
+                nftAddress: NFT_ADDRESS,
+                tokenId: 0
             }
         ];
 
@@ -840,22 +825,48 @@
                     return;
                 }
 
+                // Request accounts
                 const accounts = await window.ethereum.request({ 
                     method: 'eth_requestAccounts' 
                 });
 
                 // Check if on Sepolia
                 const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-                if (parseInt(chainId, 16) !== SEPOLIA_CHAIN_ID) {
-                    showToast('error', 'Wrong Network', 'Please switch to Sepolia testnet');
+                const sepoliaChainId = '0xaa36a7'; // Sepolia is 11155111 in hex
+                
+                if (chainId !== sepoliaChainId) {
+                    showToast('info', 'Wrong Network', 'Switching to Sepolia...');
                     try {
                         await window.ethereum.request({
                             method: 'wallet_switchEthereumChain',
-                            params: [{ chainId: '0x' + SEPOLIA_CHAIN_ID.toString(16) }],
+                            params: [{ chainId: sepoliaChainId }],
                         });
                     } catch (switchError) {
-                        showToast('error', 'Network Switch Failed', 'Please manually switch to Sepolia');
-                        return;
+                        // Chain not added, try adding it
+                        if (switchError.code === 4902) {
+                            try {
+                                await window.ethereum.request({
+                                    method: 'wallet_addEthereumChain',
+                                    params: [{
+                                        chainId: sepoliaChainId,
+                                        chainName: 'Sepolia Testnet',
+                                        nativeCurrency: {
+                                            name: 'ETH',
+                                            symbol: 'ETH',
+                                            decimals: 18
+                                        },
+                                        rpcUrls: ['https://sepolia.public.blastapi.io'],
+                                        blockExplorerUrls: ['https://sepolia.etherscan.io']
+                                    }]
+                                });
+                            } catch (addError) {
+                                showToast('error', 'Network Error', 'Please manually switch to Sepolia');
+                                return;
+                            }
+                        } else {
+                            showToast('error', 'Network Switch Failed', 'Please manually switch to Sepolia');
+                            return;
+                        }
                     }
                 }
 
@@ -871,8 +882,9 @@
                 btn.classList.add('connected');
                 btn.disabled = true;
 
-                showToast('success', 'Connected', 'Wallet connected to Sepolia');
+                showToast('success', 'Connected', 'Wallet connected successfully');
                 
+                // Load auction data
                 await loadAuctionData();
                 renderAuctions();
                 renderUserBids();
@@ -880,8 +892,12 @@
                 showToast('success', 'Ready', 'You can now place encrypted bids');
 
             } catch (error) {
-                console.error(error);
-                showToast('error', 'Connection Failed', 'Could not connect to wallet');
+                console.error('Connection error:', error);
+                if (error.code === 4001) {
+                    showToast('error', 'Rejected', 'Connection request was rejected');
+                } else {
+                    showToast('error', 'Connection Failed', 'Could not connect to wallet');
+                }
             }
         }
 
@@ -1148,6 +1164,10 @@
 
         renderAuctions();
 
+        // Bind connect button
+        document.getElementById('connectBtn').addEventListener('click', connectWallet);
+
+        // Auto-refresh auction times
         setInterval(() => {
             if (auctions.length > 0) renderAuctions();
         }, 60000);
