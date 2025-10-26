@@ -719,6 +719,18 @@
             </button>
         </nav>
 
+        <!-- Diagnostic Info -->
+        <div style="background: var(--zama-gray); border: 1px solid rgba(255, 215, 0, 0.2); border-radius: 12px; padding: 20px; margin-bottom: 40px;">
+            <div style="font-size: 14px; font-weight: 600; color: var(--zama-yellow); margin-bottom: 12px;">🔧 Debug Info</div>
+            <div style="font-size: 12px; color: rgba(255, 255, 255, 0.6); font-family: 'Courier New', monospace; line-height: 1.8;">
+                <div>MetaMask Installed: <span id="debugMetaMask">Checking...</span></div>
+                <div>Ethers.js Loaded: <span id="debugEthers">Checking...</span></div>
+                <div>fhevmjs Loaded: <span id="debugFhevm">Checking...</span></div>
+                <div>Auction Address: <span style="color: var(--zama-yellow);">${AUCTION_ADDRESS.substring(0, 10)}...</span></div>
+                <div>NFT Address: <span style="color: var(--zama-yellow);">${NFT_ADDRESS.substring(0, 10)}...</span></div>
+            </div>
+        </div>
+
         <div class="hero">
             <div class="badge">
                 <div class="badge-dot"></div>
@@ -857,37 +869,52 @@
 
         // ============ WALLET CONNECTION ============
         async function connectWallet() {
-            console.log('connectWallet called!');
+            console.log('🔌 connectWallet called!');
             
             try {
+                // Check 1: MetaMask installed?
+                console.log('📍 Checking MetaMask...');
+                console.log('window.ethereum exists:', typeof window.ethereum !== 'undefined');
+                console.log('window.ethereum:', window.ethereum);
+                
                 if (typeof window.ethereum === 'undefined') {
+                    console.error('❌ MetaMask not found');
                     showToast('error', 'Wallet Required', 'Please install MetaMask to continue');
                     return;
                 }
 
-                console.log('Requesting accounts...');
+                console.log('✅ MetaMask detected');
+                console.log('📞 Requesting accounts...');
                 
                 const accounts = await window.ethereum.request({ 
                     method: 'eth_requestAccounts' 
                 });
 
-                console.log('Accounts received:', accounts);
+                console.log('✅ Accounts received:', accounts);
+                console.log('Account count:', accounts.length);
 
                 // Check if on Sepolia
+                console.log('🌐 Checking network...');
                 const chainId = await window.ethereum.request({ method: 'eth_chainId' });
                 const sepoliaChainId = '0xaa36a7';
                 
                 console.log('Current chainId:', chainId);
+                console.log('Target chainId:', sepoliaChainId);
+                console.log('Match:', chainId === sepoliaChainId);
                 
                 if (chainId !== sepoliaChainId) {
+                    console.log('⚠️ Wrong network, switching...');
                     showToast('info', 'Wrong Network', 'Switching to Sepolia...');
                     try {
                         await window.ethereum.request({
                             method: 'wallet_switchEthereumChain',
                             params: [{ chainId: sepoliaChainId }],
                         });
+                        console.log('✅ Network switched');
                     } catch (switchError) {
+                        console.error('Network switch error:', switchError);
                         if (switchError.code === 4902) {
+                            console.log('📝 Network not added, adding Sepolia...');
                             try {
                                 await window.ethereum.request({
                                     method: 'wallet_addEthereumChain',
@@ -903,26 +930,35 @@
                                         blockExplorerUrls: ['https://sepolia.etherscan.io']
                                     }]
                                 });
+                                console.log('✅ Sepolia added');
                             } catch (addError) {
+                                console.error('❌ Failed to add network:', addError);
                                 showToast('error', 'Network Error', 'Please manually switch to Sepolia');
                                 return;
                             }
                         } else {
+                            console.error('❌ Switch failed:', switchError);
                             showToast('error', 'Network Switch Failed', 'Please manually switch to Sepolia');
                             return;
                         }
                     }
                 }
 
+                console.log('🔗 Creating provider...');
                 provider = new ethers.BrowserProvider(window.ethereum);
+                console.log('Provider created:', provider);
+                
+                console.log('✍️ Getting signer...');
                 signer = await provider.getSigner();
+                console.log('Signer:', signer);
+                
                 userAddress = accounts[0];
-
-                console.log('Connected address:', userAddress);
+                console.log('✅ User address:', userAddress);
 
                 // Connect to contract
+                console.log('📄 Connecting to contract:', AUCTION_ADDRESS);
                 auctionContract = new ethers.Contract(AUCTION_ADDRESS, AUCTION_ABI, signer);
-                console.log('Contract connected:', AUCTION_ADDRESS);
+                console.log('✅ Contract connected');
 
                 const btn = document.getElementById('connectBtn');
                 btn.textContent = userAddress.substring(0, 6) + '...' + userAddress.substring(38);
@@ -932,21 +968,42 @@
                 showToast('success', 'Connected', 'Wallet connected successfully');
                 
                 // Initialize FHEVM
-                await createFhevmInstance();
+                console.log('🔐 Initializing FHEVM...');
+                try {
+                    await createFhevmInstance();
+                    console.log('✅ FHEVM initialized');
+                } catch (fheError) {
+                    console.error('⚠️ FHEVM initialization failed:', fheError);
+                    showToast('error', 'FHE Error', 'Could not initialize encryption. Bids may not work.');
+                }
                 
                 // Load auction data
-                await loadAuctionData();
+                console.log('📊 Loading auction data...');
+                try {
+                    await loadAuctionData();
+                    console.log('✅ Auction data loaded');
+                } catch (loadError) {
+                    console.error('⚠️ Failed to load auction data:', loadError);
+                }
+                
                 renderAuctions();
                 renderUserBids();
                 
                 showToast('success', 'Ready', 'You can now place encrypted bids');
+                console.log('🎉 Wallet connection complete!');
 
             } catch (error) {
-                console.error('Connection error:', error);
+                console.error('💥 Connection error:', error);
+                console.error('Error code:', error.code);
+                console.error('Error message:', error.message);
+                console.error('Full error:', JSON.stringify(error, null, 2));
+                
                 if (error.code === 4001) {
                     showToast('error', 'Rejected', 'Connection request was rejected');
+                } else if (error.code === -32002) {
+                    showToast('error', 'Pending', 'Connection request already pending. Check MetaMask.');
                 } else {
-                    showToast('error', 'Connection Failed', 'Could not connect to wallet');
+                    showToast('error', 'Connection Failed', error.message || 'Could not connect to wallet');
                 }
             }
         }
