@@ -800,6 +800,10 @@
             "function tokenURI(uint256 tokenId) external view returns (string)"
         ];
 
+        // ============ GLOBAL STATE ============
+        let provider, signer, userAddress, userBids = {};
+        let auctionContract = null;
+
         const auctions = [
             {
                 id: 1,
@@ -807,32 +811,38 @@
                 number: '#4219',
                 emoji: '🐉',
                 seller: '0xDaC2...6547',
-                endTime: Date.now() + 7200000, // Will be updated from contract
-                minBid: 0.01, // Will be updated from contract
+                endTime: Date.now() + 7200000,
+                minBid: 0.01,
                 contractAddress: AUCTION_ADDRESS,
                 nftAddress: NFT_ADDRESS,
                 tokenId: 0
             }
         ];
 
-        let provider, signer, userAddress, userBids = {};
-        let auctionContract = null;
-
+        // ============ WALLET CONNECTION ============
         async function connectWallet() {
+            console.log('connectWallet called!');
+            
             try {
                 if (typeof window.ethereum === 'undefined') {
                     showToast('error', 'Wallet Required', 'Please install MetaMask to continue');
                     return;
                 }
 
+                console.log('Requesting accounts...');
+                
                 // Request accounts
                 const accounts = await window.ethereum.request({ 
                     method: 'eth_requestAccounts' 
                 });
 
+                console.log('Accounts received:', accounts);
+
                 // Check if on Sepolia
                 const chainId = await window.ethereum.request({ method: 'eth_chainId' });
                 const sepoliaChainId = '0xaa36a7'; // Sepolia is 11155111 in hex
+                
+                console.log('Current chainId:', chainId);
                 
                 if (chainId !== sepoliaChainId) {
                     showToast('info', 'Wrong Network', 'Switching to Sepolia...');
@@ -874,8 +884,11 @@
                 signer = await provider.getSigner();
                 userAddress = accounts[0];
 
+                console.log('Connected address:', userAddress);
+
                 // Connect to contract
                 auctionContract = new ethers.Contract(AUCTION_ADDRESS, AUCTION_ABI, signer);
+                console.log('Contract connected:', AUCTION_ADDRESS);
 
                 const btn = document.getElementById('connectBtn');
                 btn.textContent = userAddress.substring(0, 6) + '...' + userAddress.substring(38);
@@ -901,6 +914,7 @@
             }
         }
 
+        // ============ LOAD AUCTION DATA ============
         async function loadAuctionData() {
             if (!auctionContract) return;
             
@@ -916,10 +930,14 @@
                 
                 console.log('Auction Status:', status);
                 console.log('Bidders:', Number(info[5]));
+                console.log('Min Bid:', auctions[0].minBid);
             } catch (error) {
                 console.error('Error loading auction:', error);
             }
         }
+
+        // ============ RENDER AUCTIONS ============
+        function renderAuctions() {
             const grid = document.getElementById('auctionsGrid');
             grid.innerHTML = '';
 
@@ -968,44 +986,7 @@
             });
         }
 
-        async function connectWallet() {
-            try {
-                if (typeof window.ethereum === 'undefined') {
-                    showToast('error', 'Wallet Required', 'Please install MetaMask to continue');
-                    return;
-                }
-
-                const accounts = await window.ethereum.request({ 
-                    method: 'eth_requestAccounts' 
-                });
-
-                provider = new ethers.BrowserProvider(window.ethereum);
-                signer = await provider.getSigner();
-                userAddress = accounts[0];
-
-                const btn = document.getElementById('connectBtn');
-                btn.textContent = userAddress.substring(0, 6) + '...' + userAddress.substring(38);
-                btn.classList.add('connected');
-                btn.disabled = true;
-
-                showToast('success', 'Connected', 'Wallet connected successfully');
-                
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                showToast('info', 'Initializing', 'Setting up FHE encryption...');
-                
-                await new Promise(resolve => setTimeout(resolve, 1500));
-                
-                renderAuctions();
-                renderUserBids();
-                
-                showToast('success', 'Ready', 'You can now place encrypted bids');
-
-            } catch (error) {
-                console.error(error);
-                showToast('error', 'Connection Failed', 'Could not connect to wallet');
-            }
-        }
-
+        // ============ PLACE BID ============
         async function placeBid(auctionId) {
             if (!auctionContract || !userAddress) {
                 showToast('error', 'Not Connected', 'Please connect your wallet first');
@@ -1073,7 +1054,7 @@
                 console.error(error);
                 if (error.code === 'ACTION_REJECTED') {
                     showToast('error', 'Rejected', 'Transaction was rejected');
-                } else if (error.message.includes('Bid below minimum')) {
+                } else if (error.message && error.message.includes('Bid below minimum')) {
                     showToast('error', 'Bid Too Low', 'Your bid is below the minimum');
                 } else {
                     showToast('error', 'Failed', error.message || 'Could not place bid');
@@ -1081,6 +1062,7 @@
             }
         }
 
+        // ============ RENDER USER BIDS ============
         function renderUserBids() {
             const container = document.getElementById('bidList');
             
@@ -1137,6 +1119,7 @@
             });
         }
 
+        // ============ SHOW TOAST ============
         function showToast(type, title, message) {
             const icons = {
                 success: '✓',
@@ -1162,16 +1145,22 @@
             }, 3000);
         }
 
+        // ============ INITIALIZATION ============
+        // Initial render
         renderAuctions();
 
         // Bind connect button
-        document.getElementById('connectBtn').addEventListener('click', connectWallet);
+        document.getElementById('connectBtn').addEventListener('click', function() {
+            console.log('Connect button clicked!');
+            connectWallet();
+        });
 
         // Auto-refresh auction times
         setInterval(() => {
             if (auctions.length > 0) renderAuctions();
         }, 60000);
 
+        // Smooth scrolling for anchor links
         document.querySelectorAll('a[href^="#"]').forEach(anchor => {
             anchor.addEventListener('click', function (e) {
                 e.preventDefault();
@@ -1185,12 +1174,18 @@
             });
         });
 
+        // Filter tabs
         document.querySelectorAll('.filter-tab').forEach(tab => {
             tab.addEventListener('click', function() {
                 document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
                 this.classList.add('active');
             });
         });
+
+        // Log when script is loaded
+        console.log('Script loaded successfully');
+        console.log('Auction Address:', AUCTION_ADDRESS);
+        console.log('NFT Address:', NFT_ADDRESS);
     </script>
 </body>
 </html>
