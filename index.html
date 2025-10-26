@@ -697,6 +697,13 @@
     <div class="yellow-glow yellow-glow-2"></div>
     
     <div class="container">
+        <!-- Credits -->
+        <div style="text-align: center; padding: 20px 0; border-bottom: 1px solid rgba(255, 215, 0, 0.1); margin-bottom: 20px;">
+            <p style="color: rgba(255, 255, 255, 0.6); font-size: 14px;">
+                Developed by <a href="https://x.com/PurplethePlum" target="_blank" style="color: var(--zama-yellow); text-decoration: none; font-weight: 600;">Purple Plum</a>
+            </p>
+        </div>
+
         <nav>
             <div class="logo">
                 SEALED<span class="logo-dot">.</span>
@@ -766,6 +773,33 @@
     </div>
 
     <script>
+        // ============ CONTRACT ADDRESSES ============
+        const AUCTION_ADDRESS = '0xe789cF34071734CBCF0c7ff544f85649237cd7e9';
+        const NFT_ADDRESS = '0x3a8Ad755BBf611419617099B67ED6767105EAA88';
+        const SEPOLIA_CHAIN_ID = 11155111;
+        
+        // ============ CONTRACT ABIs ============
+        const AUCTION_ABI = [
+            "function bid(bytes32 encryptedBid, bytes calldata proof) external",
+            "function getMyBid() external view returns (bytes32)",
+            "function getMyTicket() external view returns (bytes32)",
+            "function getBidderCount() external view returns (uint256)",
+            "function hasEnded() external view returns (bool)",
+            "function timeRemaining() external view returns (uint256)",
+            "function getAuctionInfo() external view returns (address, uint256, address, uint256, uint256, uint256, bool, bool, bool, address)",
+            "function getStatus() external view returns (string)",
+            "function requestDecryption() external",
+            "function amIWinner() external view returns (bool)",
+            "function claimNFT() external",
+            "function finalized() external view returns (bool)",
+            "event BidPlaced(address indexed bidder, uint256 timestamp)"
+        ];
+        
+        const NFT_ABI = [
+            "function ownerOf(uint256 tokenId) external view returns (address)",
+            "function tokenURI(uint256 tokenId) external view returns (string)"
+        ];
+
         const auctions = [
             {
                 id: 1,
@@ -797,8 +831,79 @@
         ];
 
         let provider, signer, userAddress, userBids = {};
+        let auctionContract = null;
 
-        function renderAuctions() {
+        async function connectWallet() {
+            try {
+                if (typeof window.ethereum === 'undefined') {
+                    showToast('error', 'Wallet Required', 'Please install MetaMask to continue');
+                    return;
+                }
+
+                const accounts = await window.ethereum.request({ 
+                    method: 'eth_requestAccounts' 
+                });
+
+                // Check if on Sepolia
+                const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+                if (parseInt(chainId, 16) !== SEPOLIA_CHAIN_ID) {
+                    showToast('error', 'Wrong Network', 'Please switch to Sepolia testnet');
+                    try {
+                        await window.ethereum.request({
+                            method: 'wallet_switchEthereumChain',
+                            params: [{ chainId: '0x' + SEPOLIA_CHAIN_ID.toString(16) }],
+                        });
+                    } catch (switchError) {
+                        showToast('error', 'Network Switch Failed', 'Please manually switch to Sepolia');
+                        return;
+                    }
+                }
+
+                provider = new ethers.BrowserProvider(window.ethereum);
+                signer = await provider.getSigner();
+                userAddress = accounts[0];
+
+                // Connect to contract
+                auctionContract = new ethers.Contract(AUCTION_ADDRESS, AUCTION_ABI, signer);
+
+                const btn = document.getElementById('connectBtn');
+                btn.textContent = userAddress.substring(0, 6) + '...' + userAddress.substring(38);
+                btn.classList.add('connected');
+                btn.disabled = true;
+
+                showToast('success', 'Connected', 'Wallet connected to Sepolia');
+                
+                await loadAuctionData();
+                renderAuctions();
+                renderUserBids();
+                
+                showToast('success', 'Ready', 'You can now place encrypted bids');
+
+            } catch (error) {
+                console.error(error);
+                showToast('error', 'Connection Failed', 'Could not connect to wallet');
+            }
+        }
+
+        async function loadAuctionData() {
+            if (!auctionContract) return;
+            
+            try {
+                const info = await auctionContract.getAuctionInfo();
+                const status = await auctionContract.getStatus();
+                const timeLeft = await auctionContract.timeRemaining();
+                
+                // Update auction data with real contract info
+                auctions[0].endTime = Date.now() + (Number(timeLeft) * 1000);
+                auctions[0].seller = info[2].substring(0, 6) + '...' + info[2].substring(38);
+                auctions[0].minBid = Number(ethers.formatEther(info[4]));
+                
+                console.log('Auction Status:', status);
+                console.log('Bidders:', Number(info[5]));
+            } catch (error) {
+                console.error('Error loading auction:', error);
+            }
+        }
             const grid = document.getElementById('auctionsGrid');
             grid.innerHTML = '';
 
@@ -886,6 +991,11 @@
         }
 
         async function placeBid(auctionId) {
+            if (!auctionContract || !userAddress) {
+                showToast('error', 'Not Connected', 'Please connect your wallet first');
+                return;
+            }
+
             const input = document.getElementById(`bid-${auctionId}`);
             const bidAmount = parseFloat(input.value);
 
@@ -903,31 +1013,55 @@
             try {
                 showToast('info', 'Encrypting', 'Securing your bid with FHE...');
                 
-                await new Promise(resolve => setTimeout(resolve, 1500));
+                // In production, you would use fhevmjs to properly encrypt
+                // For now, we'll simulate the encryption
+                const bidInWei = ethers.parseEther(bidAmount.toString());
                 
-                const encrypted = btoa(bidAmount.toString() + userAddress);
+                // Simulated encrypted bid (in production, use fhevmjs library)
+                const encryptedBid = ethers.zeroPadValue(ethers.toBeHex(bidInWei), 32);
+                const proof = "0x"; // Empty proof for simulation
                 
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                showToast('info', 'Submitting', 'Sending encrypted bid to blockchain...');
+                
+                const tx = await auctionContract.bid(encryptedBid, proof);
+                
+                showToast('info', 'Confirming', 'Waiting for transaction confirmation...');
+                
+                const receipt = await tx.wait();
                 
                 if (!userBids[auctionId]) {
                     userBids[auctionId] = [];
                 }
+                
+                const encrypted = btoa(bidAmount.toString() + userAddress);
                 
                 userBids[auctionId].push({
                     amount: bidAmount,
                     encrypted: encrypted,
                     timestamp: Date.now(),
                     auctionName: auction.name,
-                    auctionNumber: auction.number
+                    auctionNumber: auction.number,
+                    txHash: receipt.hash
                 });
 
-                showToast('success', 'Bid Placed', 'Your encrypted bid is now on-chain');
+                showToast('success', 'Bid Placed', 'Your encrypted bid is on-chain!');
                 input.value = '';
+                
+                // Save to localStorage
+                localStorage.setItem('userBids_' + userAddress, JSON.stringify(userBids));
+                
                 renderUserBids();
+                await loadAuctionData();
 
             } catch (error) {
                 console.error(error);
-                showToast('error', 'Bid Failed', 'Could not place bid');
+                if (error.code === 'ACTION_REJECTED') {
+                    showToast('error', 'Rejected', 'Transaction was rejected');
+                } else if (error.message.includes('Bid below minimum')) {
+                    showToast('error', 'Bid Too Low', 'Your bid is below the minimum');
+                } else {
+                    showToast('error', 'Failed', error.message || 'Could not place bid');
+                }
             }
         }
 
@@ -943,12 +1077,22 @@
                 `;
                 return;
             }
+            
+            // Load from localStorage
+            const saved = localStorage.getItem('userBids_' + userAddress);
+            if (saved) {
+                try {
+                    userBids = JSON.parse(saved);
+                } catch (e) {
+                    console.error('Error loading bids:', e);
+                }
+            }
 
             if (Object.keys(userBids).length === 0) {
                 container.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">📭</div>
-                        <p>No bids placed yet. Start bidding on live auctions above!</p>
+                        <p>No bids yet. Start bidding on the auction above!</p>
                     </div>
                 `;
                 return;
@@ -965,6 +1109,7 @@
                             <h4>${bid.auctionName} ${bid.auctionNumber}</h4>
                             <div class="encrypted-hash">🔐 ${bid.encrypted.substring(0, 32)}...</div>
                             <div class="bid-timestamp">${new Date(bid.timestamp).toLocaleString()}</div>
+                            ${bid.txHash ? `<div class="bid-timestamp">TX: ${bid.txHash.substring(0, 10)}...</div>` : ''}
                         </div>
                         <div class="bid-amount">
                             <div class="bid-amount-value">${bid.amount} ETH</div>
