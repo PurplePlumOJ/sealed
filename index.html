@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sealed Bid Auctions | Confidential NFT Marketplace</title>
     <script src="https://cdn.jsdelivr.net/npm/ethers@6.7.0/dist/ethers.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/fhevmjs@0.5.3/bundle/bundle.web.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fhevmjs@0.6.0-2/bundle/bundle.web.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
         * {
@@ -777,15 +777,7 @@
         // ============ CONTRACT ADDRESSES ============
         const AUCTION_ADDRESS = '0xe789cF34071734CBCF0c7ff544f85649237cd7e9';
         const NFT_ADDRESS = '0x3a8Ad755BBf611419617099B67ED6767105EAA88';
-        
-        // Correct Zama Sepolia Configuration (verified from official docs)
-        const FHEVM_CONFIG = {
-            verifyingContractAddress: "0x7048C39f048125eDa9d678AEbaDfB22F7900a29F",
-            kmsContractAddress: "0x1364cBBf2cDF5032C47d8226a6f6FBD2AFCDacAC",
-            aclContractAddress: "0x687820221192C5B662b25367F70076A37bc79b6c",
-            relayerUrl: 'https://relayer.testnet.zama.cloud',
-            gatewayChainId: 11155111, // Sepolia
-        };
+        const FHE_LIB_ADDRESS = '0x000000000000000000000000000000000000005d'; // FHEVM library address on Sepolia
         
         // ============ CONTRACT ABIs ============
         const AUCTION_ABI = [
@@ -827,16 +819,37 @@
         // ============ FHE INSTANCE CREATION ============
         async function createFhevmInstance() {
             try {
-                showToast('info', 'Initializing FHE', 'Setting up encryption system...');
+                showToast('info', 'Initializing FHE', 'Fetching encryption key...');
                 console.log('🔐 Creating FHEVM instance...');
-                console.log('Config:', FHEVM_CONFIG);
                 
-                // Initialize fhevm library first
+                // Get network info
+                const network = await provider.getNetwork();
+                const chainId = +network.chainId.toString();
+                console.log('Chain ID:', chainId);
+                
+                // Fetch public key from FHE library contract
+                console.log('Fetching public key from:', FHE_LIB_ADDRESS);
+                const ret = await provider.call({
+                    to: FHE_LIB_ADDRESS,
+                    // first four bytes of keccak256('fhePubKey(bytes1)') + 1 byte for library
+                    data: "0xd9d47bb001",
+                });
+                
+                const decoded = ethers.AbiCoder.defaultAbiCoder().decode(["bytes"], ret);
+                const publicKey = decoded[0];
+                
+                console.log('✅ Public key fetched:', publicKey.substring(0, 20) + '...');
+                
+                // Initialize WASM
+                showToast('info', 'Loading WASM', 'Initializing encryption library...');
                 await window.fhevm.initFhevm();
-                console.log('✅ FHEVM library initialized');
+                console.log('✅ WASM initialized');
                 
-                // Create instance with correct Sepolia configuration
-                fhevmInstance = await window.fhevm.createInstance(FHEVM_CONFIG);
+                // Create instance with ONLY chainId and publicKey
+                fhevmInstance = await window.fhevm.createInstance({ 
+                    chainId, 
+                    publicKey 
+                });
                 
                 console.log('✅ FHEVM instance created successfully');
                 showToast('success', 'FHE Ready', 'Encryption system initialized');
@@ -844,9 +857,18 @@
                 return fhevmInstance;
             } catch (error) {
                 console.error('❌ Error creating FHEVM instance:', error);
+                console.error('Error name:', error.name);
                 console.error('Error message:', error.message);
                 console.error('Error stack:', error.stack);
-                showToast('error', 'FHE Error', 'Could not initialize encryption. Check console for details.');
+                
+                // More specific error messages
+                if (error.message && error.message.includes('call revert')) {
+                    showToast('error', 'FHE Library Not Found', 'FHEVM not deployed on this network');
+                } else if (error.message && error.message.includes('WASM')) {
+                    showToast('error', 'WASM Load Failed', 'Could not load encryption library');
+                } else {
+                    showToast('error', 'FHE Error', error.message || 'Could not initialize encryption');
+                }
                 throw error;
             }
         }
@@ -1061,7 +1083,7 @@
 
             if (!fhevmInstance) {
                 showToast('error', 'FHE Not Ready', 'Encryption system not initialized. Please refresh and reconnect.');
-                console.error('fhevmInstance is null or undefined');
+                console.error('fhevmInstance is null');
                 return;
             }
 
@@ -1088,21 +1110,22 @@
                 const bidInWei = ethers.parseEther(bidAmount.toString());
                 console.log('Bid in Wei:', bidInWei.toString());
                 
-                // Create encrypted input using the correct API
-                const { handles, inputProof } = await fhevmInstance.createEncryptedInput(
-                    AUCTION_ADDRESS,
-                    userAddress
-                ).add64(Number(bidInWei))
-                  .encrypt();
+                // Create encrypted input - correct API from official docs
+                const input = fhevmInstance.createEncryptedInput(AUCTION_ADDRESS, userAddress);
+                input.add64(Number(bidInWei));
+                const encryptedData = input.encrypt();
                 
                 console.log('✅ Bid encrypted successfully');
-                console.log('Handle:', handles[0]);
-                console.log('Proof length:', inputProof.length);
+                console.log('Encrypted handles:', encryptedData.handles);
+                console.log('Input proof:', encryptedData.inputProof);
                 
                 showToast('info', 'Submitting', 'Sending encrypted bid to blockchain...');
                 
                 // Call contract with encrypted bid
-                const tx = await auctionContract.bid(handles[0], inputProof);
+                const tx = await auctionContract.bid(
+                    encryptedData.handles[0],
+                    encryptedData.inputProof
+                );
                 
                 showToast('info', 'Confirming', 'Waiting for transaction confirmation...');
                 console.log('📝 Transaction sent:', tx.hash);
