@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sealed Bid Auctions | Confidential NFT Marketplace</title>
     <script src="https://cdn.jsdelivr.net/npm/ethers@6.7.0/dist/ethers.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fhevmjs@0.5.3/bundle/bundle.web.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
         * {
@@ -777,10 +778,11 @@
         const AUCTION_ADDRESS = '0xe789cF34071734CBCF0c7ff544f85649237cd7e9';
         const NFT_ADDRESS = '0x3a8Ad755BBf611419617099B67ED6767105EAA88';
         const SEPOLIA_CHAIN_ID = 11155111;
+        const FHE_LIB_ADDRESS = '0x000000000000000000000000000000000000005d'; // FHEVM library address
         
         // ============ CONTRACT ABIs ============
         const AUCTION_ABI = [
-            "function bid(bytes32 encryptedBid, bytes calldata proof) external",
+            "function bid(bytes calldata encryptedBid, bytes calldata proof) external",
             "function getMyBid() external view returns (bytes32)",
             "function getMyTicket() external view returns (bytes32)",
             "function getBidderCount() external view returns (uint256)",
@@ -803,6 +805,7 @@
         // ============ GLOBAL STATE ============
         let provider, signer, userAddress, userBids = {};
         let auctionContract = null;
+        let fhevmInstance = null;
 
         const auctions = [
             {
@@ -819,6 +822,39 @@
             }
         ];
 
+        // ============ FHE INSTANCE CREATION ============
+        async function createFhevmInstance() {
+            try {
+                showToast('info', 'Initializing FHE', 'Fetching blockchain public key...');
+                
+                const network = await provider.getNetwork();
+                const chainId = +network.chainId.toString();
+                
+                // Get FHE public key from blockchain
+                const ret = await provider.call({
+                    to: FHE_LIB_ADDRESS,
+                    data: "0xd9d47bb001", // keccak256('fhePubKey(bytes1)') + 01
+                });
+                
+                const decoded = ethers.AbiCoder.defaultAbiCoder().decode(["bytes"], ret);
+                const publicKey = decoded[0];
+                
+                console.log('FHE Public Key retrieved:', publicKey.substring(0, 20) + '...');
+                
+                // Create fhevm instance
+                fhevmInstance = await window.fhevm.createInstance({ chainId, publicKey });
+                
+                console.log('FHEVM instance created successfully');
+                showToast('success', 'FHE Ready', 'Encryption system initialized');
+                
+                return fhevmInstance;
+            } catch (error) {
+                console.error('Error creating FHEVM instance:', error);
+                showToast('error', 'FHE Error', 'Could not initialize encryption');
+                throw error;
+            }
+        }
+
         // ============ WALLET CONNECTION ============
         async function connectWallet() {
             console.log('connectWallet called!');
@@ -831,7 +867,6 @@
 
                 console.log('Requesting accounts...');
                 
-                // Request accounts
                 const accounts = await window.ethereum.request({ 
                     method: 'eth_requestAccounts' 
                 });
@@ -840,7 +875,7 @@
 
                 // Check if on Sepolia
                 const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-                const sepoliaChainId = '0xaa36a7'; // Sepolia is 11155111 in hex
+                const sepoliaChainId = '0xaa36a7';
                 
                 console.log('Current chainId:', chainId);
                 
@@ -852,7 +887,6 @@
                             params: [{ chainId: sepoliaChainId }],
                         });
                     } catch (switchError) {
-                        // Chain not added, try adding it
                         if (switchError.code === 4902) {
                             try {
                                 await window.ethereum.request({
@@ -896,6 +930,9 @@
                 btn.disabled = true;
 
                 showToast('success', 'Connected', 'Wallet connected successfully');
+                
+                // Initialize FHEVM
+                await createFhevmInstance();
                 
                 // Load auction data
                 await loadAuctionData();
@@ -993,6 +1030,11 @@
                 return;
             }
 
+            if (!fhevmInstance) {
+                showToast('error', 'FHE Not Ready', 'Encryption system not initialized');
+                return;
+            }
+
             const input = document.getElementById(`bid-${auctionId}`);
             const bidAmount = parseFloat(input.value);
 
@@ -1010,17 +1052,24 @@
             try {
                 showToast('info', 'Encrypting', 'Securing your bid with FHE...');
                 
-                // In production, you would use fhevmjs to properly encrypt
-                // For now, we'll simulate the encryption
+                // Convert ETH to Wei
                 const bidInWei = ethers.parseEther(bidAmount.toString());
+                const bidValue = BigInt(bidInWei.toString());
                 
-                // Simulated encrypted bid (in production, use fhevmjs library)
-                const encryptedBid = ethers.zeroPadValue(ethers.toBeHex(bidInWei), 32);
-                const proof = "0x"; // Empty proof for simulation
+                console.log('Bid amount in Wei:', bidValue.toString());
+                
+                // Encrypt the bid using fhevmjs
+                const encryptedBid = fhevmInstance.encrypt64(bidValue);
+                
+                console.log('Encrypted bid:', encryptedBid);
                 
                 showToast('info', 'Submitting', 'Sending encrypted bid to blockchain...');
                 
-                const tx = await auctionContract.bid(encryptedBid, proof);
+                // Call contract with encrypted bid
+                const tx = await auctionContract.bid(
+                    '0x' + encryptedBid,
+                    '0x' // Proof (handled by fhevmjs internally)
+                );
                 
                 showToast('info', 'Confirming', 'Waiting for transaction confirmation...');
                 
@@ -1051,7 +1100,7 @@
                 await loadAuctionData();
 
             } catch (error) {
-                console.error(error);
+                console.error('Bid error:', error);
                 if (error.code === 'ACTION_REJECTED') {
                     showToast('error', 'Rejected', 'Transaction was rejected');
                 } else if (error.message && error.message.includes('Bid below minimum')) {
@@ -1186,6 +1235,7 @@
         console.log('Script loaded successfully');
         console.log('Auction Address:', AUCTION_ADDRESS);
         console.log('NFT Address:', NFT_ADDRESS);
+        console.log('fhevmjs available:', typeof window.fhevm !== 'undefined');
     </script>
 </body>
 </html>
