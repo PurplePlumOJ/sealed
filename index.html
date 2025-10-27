@@ -762,7 +762,7 @@
         const NFT_ADDRESS = '0x3a8Ad755BBf611419617099B67ED6767105EAA88';
         
         const AUCTION_ABI = [
-            "function bid(bytes calldata encryptedBid, bytes calldata proof) external",
+            "function bid(bytes32 encryptedBid, bytes calldata proof) external",
             "function getBidderCount() external view returns (uint256)",
             "function timeRemaining() external view returns (uint256)",
             "function getAuctionInfo() external view returns (address, uint256, address, uint256, uint256, uint256, bool, bool, bool, address)"
@@ -953,14 +953,17 @@
                 if (fhevmInstance) {
                     try {
                         console.log('Creating encrypted input...');
-                        const input = fhevmInstance.createEncryptedInput(AUCTION_ADDRESS, userAddress);
-                        input.add64(Number(bidInWei));
-                        const encrypted = input.encrypt();
+                        const encInput = fhevmInstance.createEncryptedInput(AUCTION_ADDRESS, userAddress);
+                        encInput.add64(Number(bidInWei));
+                        const encrypted = encInput.encrypt();
                         
+                        // Get the handle as bytes32
                         encryptedHandle = encrypted.handles[0];
                         inputProof = encrypted.inputProof;
                         
                         console.log('✅ FHE encryption successful');
+                        console.log('Handle:', encryptedHandle);
+                        console.log('Proof length:', inputProof.length);
                     } catch (encError) {
                         console.error('FHE encryption failed:', encError);
                         fhevmInstance = null;
@@ -968,13 +971,18 @@
                 }
                 
                 if (!fhevmInstance) {
-                    console.log('Using fallback encryption');
+                    console.log('Using fallback - direct value as bytes32');
+                    // For fallback, send the value directly as bytes32
                     encryptedHandle = ethers.zeroPadValue(ethers.toBeHex(bidInWei), 32);
                     inputProof = '0x';
                 }
                 
+                console.log('Final handle:', encryptedHandle);
+                console.log('Final proof:', inputProof);
+                
                 showToast('info', 'Submitting', 'Sending to blockchain...');
                 
+                // Call with bytes32 handle and bytes proof
                 const tx = await auctionContract.bid(encryptedHandle, inputProof);
                 
                 showToast('info', 'Confirming', 'Waiting for confirmation...');
