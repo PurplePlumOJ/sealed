@@ -826,7 +826,7 @@
         // ============ FHE INSTANCE CREATION ============
         async function createFhevmInstance() {
             try {
-                showToast('info', 'Initializing FHE', 'Setting up encryption system...');
+                showToast('info', 'Initializing FHE', 'Fetching FHE public key...');
                 console.log('🔐 Creating FHEVM instance for Sepolia...');
                 
                 // Wait for module to load
@@ -847,26 +847,20 @@
                 const chainId = +network.chainId.toString();
                 console.log('Chain ID:', chainId);
                 
-                // Fetch public key from FHE library
-                console.log('Fetching public key from FHE library at 0x000000000000000000000000000000000000005d');
-                const ret = await provider.call({
-                    to: "0x000000000000000000000000000000000000005d",
-                    data: "0xd9d47bb001",
+                // Fetch public key from CORRECT FHE library address (from official docs)
+                console.log('Fetching public key from: 0x0000000000000000000000000000000000000044');
+                const publicKey = await provider.call({
+                    from: null,
+                    to: "0x0000000000000000000000000000000000000044", // CORRECT address!
                 });
-                
-                console.log('Raw return data:', ret);
-                console.log('Return data length:', ret.length);
-                
-                if (ret === '0x' || ret.length <= 2) {
-                    throw new Error('FHE library not deployed on Sepolia - returned empty data');
-                }
-                
-                const decoded = ethers.AbiCoder.defaultAbiCoder().decode(["bytes"], ret);
-                const publicKey = decoded[0];
                 
                 console.log('✅ Public key fetched');
                 console.log('Public key (first 100 chars):', publicKey.substring(0, 100) + '...');
                 console.log('Public key length:', publicKey.length);
+                
+                if (publicKey === '0x' || publicKey.length <= 2) {
+                    throw new Error('FHE library returned empty public key');
+                }
                 
                 // Initialize WASM
                 showToast('info', 'Loading WASM', 'Initializing encryption library...');
@@ -874,7 +868,7 @@
                 await window.fhevmLib.initFhevm();
                 console.log('✅ WASM initialized');
                 
-                // Create instance
+                // Create instance with chainId and publicKey (from official docs)
                 console.log('Creating FHE instance...');
                 fhevmInstance = await window.fhevmLib.createInstance({ 
                     chainId, 
@@ -883,9 +877,9 @@
                 
                 console.log('✅ FHEVM instance created successfully');
                 console.log('Instance type:', typeof fhevmInstance);
-                console.log('Instance methods:', Object.keys(fhevmInstance));
+                console.log('Has createEncryptedInput:', typeof fhevmInstance.createEncryptedInput === 'function');
                 
-                showToast('success', 'FHE Ready', 'Encryption system initialized');
+                showToast('success', 'FHE Ready', 'Encryption system initialized!');
                 
                 return fhevmInstance;
             } catch (error) {
@@ -894,12 +888,12 @@
                 console.error('Error message:', error.message);
                 console.error('Error stack:', error.stack);
                 
-                if (error.message && error.message.includes('empty data')) {
-                    showToast('error', 'FHE Not Available', 'FHEVM library not found on this network. You may need to use Zama testnet instead.');
+                if (error.message && error.message.includes('empty')) {
+                    showToast('error', 'FHE Not Available', 'FHEVM not deployed on this network');
                 } else if (error.message && error.message.includes('WASM')) {
-                    showToast('error', 'WASM Failed', 'Could not load encryption library');
+                    showToast('error', 'WASM Failed', 'Could not load encryption library. Try refreshing.');
                 } else if (error.message && error.message.includes('module')) {
-                    showToast('error', 'Module Load Failed', 'fhevmjs did not load properly');
+                    showToast('error', 'Module Load Failed', 'fhevmjs did not load properly. Refresh page.');
                 } else {
                     showToast('error', 'FHE Error', error.message || 'Initialization failed');
                 }
