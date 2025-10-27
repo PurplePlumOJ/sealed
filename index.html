@@ -5,7 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sealed Bid Auctions | Confidential NFT Marketplace</title>
     <script src="https://cdn.jsdelivr.net/npm/ethers@6.7.0/dist/ethers.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/fhevmjs@0.6.0-2/bundle/bundle.web.js"></script>
+    <script type="module">
+        // Load fhevmjs as ES module to avoid WASM loading issues
+        import { initFhevm, createInstance } from 'https://cdn.jsdelivr.net/npm/fhevmjs@0.6.0-2/+esm';
+        
+        // Make available globally
+        window.fhevmLib = { initFhevm, createInstance };
+        window.fhevmLoaded = true;
+        console.log('✅ fhevmjs loaded as ES module');
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
         * {
@@ -821,45 +829,62 @@
                 showToast('info', 'Initializing FHE', 'Setting up encryption system...');
                 console.log('🔐 Creating FHEVM instance for Sepolia...');
                 
+                // Wait for module to load
+                let attempts = 0;
+                while (!window.fhevmLoaded && attempts < 50) {
+                    await new Promise(r => setTimeout(r, 100));
+                    attempts++;
+                }
+                
+                if (!window.fhevmLoaded) {
+                    throw new Error('fhevmjs module failed to load');
+                }
+                
+                console.log('✅ fhevmjs module loaded');
+                
                 // Get network info
                 const network = await provider.getNetwork();
                 const chainId = +network.chainId.toString();
                 console.log('Chain ID:', chainId);
                 
-                // Try to fetch public key from FHE library contract on Sepolia
-                console.log('Fetching public key from FHE library...');
+                // Fetch public key from FHE library
+                console.log('Fetching public key from FHE library at 0x000000000000000000000000000000000000005d');
                 const ret = await provider.call({
                     to: "0x000000000000000000000000000000000000005d",
-                    data: "0xd9d47bb001", // fhePubKey(bytes1) selector + 01
+                    data: "0xd9d47bb001",
                 });
                 
-                console.log('Raw return:', ret);
+                console.log('Raw return data:', ret);
+                console.log('Return data length:', ret.length);
                 
-                if (ret === '0x' || ret.length < 66) {
-                    throw new Error('FHE library not deployed or returned empty data');
+                if (ret === '0x' || ret.length <= 2) {
+                    throw new Error('FHE library not deployed on Sepolia - returned empty data');
                 }
                 
                 const decoded = ethers.AbiCoder.defaultAbiCoder().decode(["bytes"], ret);
                 const publicKey = decoded[0];
                 
-                console.log('✅ Public key fetched:', publicKey.substring(0, 50) + '...');
+                console.log('✅ Public key fetched');
+                console.log('Public key (first 100 chars):', publicKey.substring(0, 100) + '...');
                 console.log('Public key length:', publicKey.length);
                 
                 // Initialize WASM
                 showToast('info', 'Loading WASM', 'Initializing encryption library...');
-                console.log('Initializing WASM...');
-                await window.fhevm.initFhevm();
+                console.log('Calling initFhevm...');
+                await window.fhevmLib.initFhevm();
                 console.log('✅ WASM initialized');
                 
                 // Create instance
-                console.log('Creating instance with chainId:', chainId);
-                fhevmInstance = await window.fhevm.createInstance({ 
+                console.log('Creating FHE instance...');
+                fhevmInstance = await window.fhevmLib.createInstance({ 
                     chainId, 
                     publicKey 
                 });
                 
                 console.log('✅ FHEVM instance created successfully');
-                console.log('Instance:', fhevmInstance);
+                console.log('Instance type:', typeof fhevmInstance);
+                console.log('Instance methods:', Object.keys(fhevmInstance));
+                
                 showToast('success', 'FHE Ready', 'Encryption system initialized');
                 
                 return fhevmInstance;
@@ -869,13 +894,12 @@
                 console.error('Error message:', error.message);
                 console.error('Error stack:', error.stack);
                 
-                // Specific error handling
                 if (error.message && error.message.includes('empty data')) {
-                    showToast('error', 'FHE Not Deployed', 'FHEVM library not found on Sepolia');
+                    showToast('error', 'FHE Not Available', 'FHEVM library not found on this network. You may need to use Zama testnet instead.');
                 } else if (error.message && error.message.includes('WASM')) {
                     showToast('error', 'WASM Failed', 'Could not load encryption library');
-                } else if (error.message && error.message.includes('fetch')) {
-                    showToast('error', 'Network Error', 'Could not load WASM files');
+                } else if (error.message && error.message.includes('module')) {
+                    showToast('error', 'Module Load Failed', 'fhevmjs did not load properly');
                 } else {
                     showToast('error', 'FHE Error', error.message || 'Initialization failed');
                 }
@@ -1122,14 +1146,28 @@
                 if (fhevmInstance) {
                     try {
                         console.log('Using FHE encryption...');
+                        console.log('Creating encrypted input for address:', AUCTION_ADDRESS);
+                        console.log('User address:', userAddress);
+                        
                         const encInput = fhevmInstance.createEncryptedInput(AUCTION_ADDRESS, userAddress);
+                        console.log('✅ Encrypted input created');
+                        
                         encInput.add64(Number(bidInWei));
+                        console.log('✅ Value added to encrypted input');
+                        
                         const encryptedData = encInput.encrypt();
+                        console.log('✅ Encryption complete');
+                        console.log('Encrypted data keys:', Object.keys(encryptedData));
+                        
                         encryptedHandle = encryptedData.handles[0];
                         inputProof = encryptedData.inputProof;
+                        
                         console.log('✅ FHE encryption successful');
+                        console.log('Handle length:', encryptedHandle.length);
+                        console.log('Proof length:', inputProof.length);
                     } catch (encError) {
-                        console.warn('⚠️ FHE encryption failed, using fallback:', encError);
+                        console.error('⚠️ FHE encryption failed:', encError);
+                        console.error('Encryption error details:', encError.message);
                         fhevmInstance = null; // Disable for future attempts
                     }
                 }
