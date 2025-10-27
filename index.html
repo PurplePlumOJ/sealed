@@ -6,13 +6,10 @@
     <title>Sealed Bid Auctions | Confidential NFT Marketplace</title>
     <script src="https://cdn.jsdelivr.net/npm/ethers@6.7.0/dist/ethers.umd.min.js"></script>
     <script type="module">
-        // Load fhevmjs as ES module to avoid WASM loading issues
         import { initFhevm, createInstance } from 'https://cdn.jsdelivr.net/npm/fhevmjs@0.6.0-2/+esm';
-        
-        // Make available globally
         window.fhevmLib = { initFhevm, createInstance };
         window.fhevmLoaded = true;
-        console.log('✅ fhevmjs loaded as ES module');
+        console.log('✅ fhevmjs loaded');
     </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
@@ -373,10 +370,6 @@
             animation: fadeInUp 0.6s ease backwards;
         }
 
-        .auction-card:nth-child(1) { animation-delay: 0.1s; }
-        .auction-card:nth-child(2) { animation-delay: 0.2s; }
-        .auction-card:nth-child(3) { animation-delay: 0.3s; }
-
         .auction-card:hover {
             transform: translateY(-12px);
             border-color: var(--zama-yellow);
@@ -410,9 +403,7 @@
         }
 
         @keyframes shine {
-            to {
-                left: 100%;
-            }
+            to { left: 100%; }
         }
 
         .auction-info {
@@ -519,8 +510,6 @@
             font-weight: 800;
             cursor: pointer;
             transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
@@ -686,17 +675,9 @@
         }
 
         @media (max-width: 768px) {
-            h1 {
-                font-size: 52px;
-            }
-
-            .info-cards, .auctions-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .nav-links {
-                display: none;
-            }
+            h1 { font-size: 52px; }
+            .info-cards, .auctions-grid { grid-template-columns: 1fr; }
+            .nav-links { display: none; }
         }
     </style>
 </head>
@@ -706,7 +687,6 @@
     <div class="yellow-glow yellow-glow-2"></div>
     
     <div class="container">
-        <!-- Credits -->
         <div style="text-align: center; padding: 20px 0; border-bottom: 1px solid rgba(255, 215, 0, 0.1); margin-bottom: 20px;">
             <p style="color: rgba(255, 255, 255, 0.6); font-size: 14px;">
                 Developed by <a href="https://x.com/PurplethePlum" target="_blank" style="color: var(--zama-yellow); text-decoration: none; font-weight: 600;">Purple Plum</a>
@@ -714,17 +694,13 @@
         </div>
 
         <nav>
-            <div class="logo">
-                SEALED<span class="logo-dot">.</span>
-            </div>
+            <div class="logo">SEALED<span class="logo-dot">.</span></div>
             <div class="nav-links">
                 <a href="#auctions">Auctions</a>
                 <a href="#how-it-works">How It Works</a>
                 <a href="#your-bids">Your Bids</a>
             </div>
-            <button class="connect-btn" id="connectBtn">
-                Connect Wallet
-            </button>
+            <button class="connect-btn" id="connectBtn">Connect Wallet</button>
         </nav>
 
         <div class="hero">
@@ -782,279 +758,123 @@
     </div>
 
     <script>
-        // ============ CONTRACT ADDRESSES ============
         const AUCTION_ADDRESS = '0xe789cF34071734CBCF0c7ff544f85649237cd7e9';
         const NFT_ADDRESS = '0x3a8Ad755BBf611419617099B67ED6767105EAA88';
         
-        // ============ CONTRACT ABIs ============
         const AUCTION_ABI = [
             "function bid(bytes calldata encryptedBid, bytes calldata proof) external",
-            "function getMyBid() external view returns (bytes32)",
-            "function getMyTicket() external view returns (bytes32)",
             "function getBidderCount() external view returns (uint256)",
-            "function hasEnded() external view returns (bool)",
             "function timeRemaining() external view returns (uint256)",
-            "function getAuctionInfo() external view returns (address, uint256, address, uint256, uint256, uint256, bool, bool, bool, address)",
-            "function getStatus() external view returns (string)",
-            "function requestDecryption() external",
-            "function amIWinner() external view returns (bool)",
-            "function claimNFT() external",
-            "function finalized() external view returns (bool)",
-            "event BidPlaced(address indexed bidder, uint256 timestamp)"
+            "function getAuctionInfo() external view returns (address, uint256, address, uint256, uint256, uint256, bool, bool, bool, address)"
         ];
 
-        // ============ GLOBAL STATE ============
         let provider, signer, userAddress, userBids = {};
-        let auctionContract = null;
-        let fhevmInstance = null;
+        let auctionContract, fhevmInstance = null;
 
-        const auctions = [
-            {
-                id: 1,
-                name: 'Cosmic Dragon',
-                number: '#4219',
-                emoji: '🐉',
-                seller: '0xDaC2...6547',
-                endTime: Date.now() + 7200000,
-                minBid: 0.01,
-                contractAddress: AUCTION_ADDRESS,
-                nftAddress: NFT_ADDRESS,
-                tokenId: 0
-            }
-        ];
+        const auctions = [{
+            id: 1, name: 'Cosmic Dragon', number: '#4219', emoji: '🐉',
+            seller: '0xDaC2...6547', endTime: Date.now() + 7200000, minBid: 0.01
+        }];
 
-        // ============ FHE INSTANCE CREATION ============
         async function createFhevmInstance() {
             try {
-                showToast('info', 'Initializing FHE', 'Fetching FHE public key...');
-                console.log('🔐 Creating FHEVM instance for Sepolia...');
+                showToast('info', 'Initializing FHE', 'Loading encryption system...');
                 
-                // Wait for module to load
                 let attempts = 0;
                 while (!window.fhevmLoaded && attempts < 50) {
                     await new Promise(r => setTimeout(r, 100));
                     attempts++;
                 }
                 
-                if (!window.fhevmLoaded) {
-                    throw new Error('fhevmjs module failed to load');
-                }
+                if (!window.fhevmLoaded) throw new Error('fhevmjs not loaded');
                 
-                console.log('✅ fhevmjs module loaded');
-                
-                // Get network info
-                const network = await provider.getNetwork();
-                const chainId = +network.chainId.toString();
-                console.log('Chain ID:', chainId);
-                
-                // Fetch public key from CORRECT FHE library address (from official docs)
-                console.log('Fetching public key from: 0x0000000000000000000000000000000000000044');
-                const publicKey = await provider.call({
-                    from: null,
-                    to: "0x0000000000000000000000000000000000000044", // CORRECT address!
-                });
-                
-                console.log('✅ Public key fetched');
-                console.log('Public key (first 100 chars):', publicKey.substring(0, 100) + '...');
-                console.log('Public key length:', publicKey.length);
-                
-                if (publicKey === '0x' || publicKey.length <= 2) {
-                    throw new Error('FHE library returned empty public key');
-                }
-                
-                // Initialize WASM
-                showToast('info', 'Loading WASM', 'Initializing encryption library...');
-                console.log('Calling initFhevm...');
                 await window.fhevmLib.initFhevm();
-                console.log('✅ WASM initialized');
                 
-                // Create instance with chainId and publicKey (from official docs)
-                console.log('Creating FHE instance...');
-                fhevmInstance = await window.fhevmLib.createInstance({ 
-                    chainId, 
-                    publicKey 
+                // CORRECT CONFIGURATION FOR SEPOLIA
+                fhevmInstance = await window.fhevmLib.createInstance({
+                    verifyingContractAddress: "0x7048C39f048125eDa9d678AEbaDfB22F7900a29F",
+                    kmsContractAddress: "0x1364cBBf2cDF5032C47d8226a6f6FBD2AFCDacAC",
+                    aclContractAddress: "0x687820221192C5B662b25367F70076A37bc79b6c",
+                    gatewayChainId: 11155111
                 });
                 
-                console.log('✅ FHEVM instance created successfully');
-                console.log('Instance type:', typeof fhevmInstance);
-                console.log('Has createEncryptedInput:', typeof fhevmInstance.createEncryptedInput === 'function');
-                
-                showToast('success', 'FHE Ready', 'Encryption system initialized!');
-                
+                console.log('✅ FHEVM instance created');
+                showToast('success', 'FHE Ready', 'Encryption initialized!');
                 return fhevmInstance;
             } catch (error) {
-                console.error('❌ Error creating FHEVM instance:', error);
-                console.error('Error name:', error.name);
-                console.error('Error message:', error.message);
-                console.error('Error stack:', error.stack);
-                
-                if (error.message && error.message.includes('empty')) {
-                    showToast('error', 'FHE Not Available', 'FHEVM not deployed on this network');
-                } else if (error.message && error.message.includes('WASM')) {
-                    showToast('error', 'WASM Failed', 'Could not load encryption library. Try refreshing.');
-                } else if (error.message && error.message.includes('module')) {
-                    showToast('error', 'Module Load Failed', 'fhevmjs did not load properly. Refresh page.');
-                } else {
-                    showToast('error', 'FHE Error', error.message || 'Initialization failed');
-                }
-                
-                throw error;
+                console.error('FHE init error:', error);
+                showToast('error', 'FHE Error', 'Using fallback mode');
+                return null;
             }
         }
 
-        // ============ WALLET CONNECTION ============
         async function connectWallet() {
-            console.log('🔌 connectWallet called!');
-            
             try {
-                console.log('📍 Checking MetaMask...');
-                
                 if (typeof window.ethereum === 'undefined') {
-                    console.error('❌ MetaMask not found');
-                    showToast('error', 'Wallet Required', 'Please install MetaMask to continue');
+                    showToast('error', 'Wallet Required', 'Install MetaMask');
                     return;
                 }
 
-                console.log('✅ MetaMask detected');
-                console.log('📞 Requesting accounts...');
-                
-                const accounts = await window.ethereum.request({ 
-                    method: 'eth_requestAccounts' 
-                });
-
-                console.log('✅ Accounts received:', accounts);
-
-                // Check if on Sepolia
-                console.log('🌐 Checking network...');
+                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
                 const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-                const sepoliaChainId = '0xaa36a7';
                 
-                console.log('Current chainId:', chainId);
-                
-                if (chainId !== sepoliaChainId) {
-                    console.log('⚠️ Wrong network, switching...');
-                    showToast('info', 'Wrong Network', 'Switching to Sepolia...');
+                if (chainId !== '0xaa36a7') {
                     try {
                         await window.ethereum.request({
                             method: 'wallet_switchEthereumChain',
-                            params: [{ chainId: sepoliaChainId }],
+                            params: [{ chainId: '0xaa36a7' }]
                         });
-                        console.log('✅ Network switched');
-                    } catch (switchError) {
-                        console.error('Network switch error:', switchError);
-                        if (switchError.code === 4902) {
-                            console.log('📝 Network not added, adding Sepolia...');
-                            try {
-                                await window.ethereum.request({
-                                    method: 'wallet_addEthereumChain',
-                                    params: [{
-                                        chainId: sepoliaChainId,
-                                        chainName: 'Sepolia Testnet',
-                                        nativeCurrency: {
-                                            name: 'ETH',
-                                            symbol: 'ETH',
-                                            decimals: 18
-                                        },
-                                        rpcUrls: ['https://sepolia.public.blastapi.io'],
-                                        blockExplorerUrls: ['https://sepolia.etherscan.io']
-                                    }]
-                                });
-                                console.log('✅ Sepolia added');
-                            } catch (addError) {
-                                console.error('❌ Failed to add network:', addError);
-                                showToast('error', 'Network Error', 'Please manually switch to Sepolia');
-                                return;
-                            }
-                        } else {
-                            showToast('error', 'Network Switch Failed', 'Please manually switch to Sepolia');
-                            return;
+                    } catch (e) {
+                        if (e.code === 4902) {
+                            await window.ethereum.request({
+                                method: 'wallet_addEthereumChain',
+                                params: [{
+                                    chainId: '0xaa36a7',
+                                    chainName: 'Sepolia',
+                                    nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+                                    rpcUrls: ['https://sepolia.public.blastapi.io'],
+                                    blockExplorerUrls: ['https://sepolia.etherscan.io']
+                                }]
+                            });
                         }
                     }
                 }
 
-                console.log('🔗 Creating provider...');
                 provider = new ethers.BrowserProvider(window.ethereum);
-                
-                console.log('✍️ Getting signer...');
                 signer = await provider.getSigner();
-                
                 userAddress = accounts[0];
-                console.log('✅ User address:', userAddress);
-
-                // Connect to contract
-                console.log('📄 Connecting to contract:', AUCTION_ADDRESS);
                 auctionContract = new ethers.Contract(AUCTION_ADDRESS, AUCTION_ABI, signer);
-                console.log('✅ Contract connected');
 
-                const btn = document.getElementById('connectBtn');
-                btn.textContent = userAddress.substring(0, 6) + '...' + userAddress.substring(38);
-                btn.classList.add('connected');
-                btn.disabled = true;
+                document.getElementById('connectBtn').textContent = userAddress.substring(0, 6) + '...' + userAddress.substring(38);
+                document.getElementById('connectBtn').classList.add('connected');
+                document.getElementById('connectBtn').disabled = true;
 
-                showToast('success', 'Connected', 'Wallet connected successfully');
+                showToast('success', 'Connected', 'Wallet connected');
                 
-                // Initialize FHEVM (optional - will fallback if it fails)
-                console.log('🔐 Initializing FHEVM...');
-                try {
-                    await createFhevmInstance();
-                    console.log('✅ FHEVM initialized');
-                } catch (fheError) {
-                    console.warn('⚠️ FHEVM initialization failed, will use fallback mode:', fheError);
-                    fhevmInstance = null; // Set to null so we use fallback
-                    showToast('info', 'Fallback Mode', 'FHE not available, using direct mode');
-                }
-                
-                // Load auction data
-                console.log('📊 Loading auction data...');
-                try {
-                    await loadAuctionData();
-                    console.log('✅ Auction data loaded');
-                } catch (loadError) {
-                    console.error('⚠️ Failed to load auction data:', loadError);
-                }
-                
+                await createFhevmInstance();
+                await loadAuctionData();
                 renderAuctions();
                 renderUserBids();
                 
-                showToast('success', 'Ready', 'You can now place encrypted bids');
-                console.log('🎉 Wallet connection complete!');
-
+                showToast('success', 'Ready', 'You can now bid!');
             } catch (error) {
-                console.error('💥 Connection error:', error);
-                
-                if (error.code === 4001) {
-                    showToast('error', 'Rejected', 'Connection request was rejected');
-                } else if (error.code === -32002) {
-                    showToast('error', 'Pending', 'Connection request already pending. Check MetaMask.');
-                } else {
-                    showToast('error', 'Connection Failed', error.message || 'Could not connect to wallet');
-                }
+                console.error(error);
+                showToast('error', 'Failed', error.message || 'Connection failed');
             }
         }
 
-        // ============ LOAD AUCTION DATA ============
         async function loadAuctionData() {
             if (!auctionContract) return;
-            
             try {
                 const info = await auctionContract.getAuctionInfo();
-                const status = await auctionContract.getStatus();
                 const timeLeft = await auctionContract.timeRemaining();
-                
-                // Update auction data with real contract info
                 auctions[0].endTime = Date.now() + (Number(timeLeft) * 1000);
-                auctions[0].seller = info[2].substring(0, 6) + '...' + info[2].substring(38);
                 auctions[0].minBid = Number(ethers.formatEther(info[4]));
-                
-                console.log('Auction Status:', status);
-                console.log('Bidders:', Number(info[5]));
-                console.log('Min Bid:', auctions[0].minBid);
-            } catch (error) {
-                console.error('Error loading auction:', error);
+            } catch (e) {
+                console.error('Load error:', e);
             }
         }
 
-        // ============ RENDER AUCTIONS ============
         function renderAuctions() {
             const grid = document.getElementById('auctionsGrid');
             grid.innerHTML = '';
@@ -1104,10 +924,9 @@
             });
         }
 
-        // ============ PLACE BID ============
         async function placeBid(auctionId) {
             if (!auctionContract || !userAddress) {
-                showToast('error', 'Not Connected', 'Please connect your wallet first');
+                showToast('error', 'Not Connected', 'Connect wallet first');
                 return;
             }
 
@@ -1115,89 +934,58 @@
             const bidAmount = parseFloat(input.value);
 
             if (!bidAmount || bidAmount <= 0) {
-                showToast('error', 'Invalid Bid', 'Please enter a valid amount');
+                showToast('error', 'Invalid Bid', 'Enter valid amount');
                 return;
             }
 
             const auction = auctions.find(a => a.id === auctionId);
             if (bidAmount < auction.minBid) {
-                showToast('error', 'Bid Too Low', `Minimum bid is ${auction.minBid} ETH`);
+                showToast('error', 'Bid Too Low', `Min: ${auction.minBid} ETH`);
                 return;
             }
 
             try {
-                showToast('info', 'Preparing', 'Preparing encrypted bid...');
-                console.log('🔐 Preparing bid...');
-                console.log('Bid amount:', bidAmount, 'ETH');
+                showToast('info', 'Encrypting', 'Securing your bid...');
                 
-                // Convert ETH to Wei
                 const bidInWei = ethers.parseEther(bidAmount.toString());
-                console.log('Bid in Wei:', bidInWei.toString());
-                
-                // Try to encrypt with FHE if available, otherwise use mock encryption
                 let encryptedHandle, inputProof;
                 
                 if (fhevmInstance) {
                     try {
-                        console.log('Using FHE encryption...');
-                        console.log('Creating encrypted input for address:', AUCTION_ADDRESS);
-                        console.log('User address:', userAddress);
+                        console.log('Creating encrypted input...');
+                        const input = fhevmInstance.createEncryptedInput(AUCTION_ADDRESS, userAddress);
+                        input.add64(Number(bidInWei));
+                        const encrypted = input.encrypt();
                         
-                        const encInput = fhevmInstance.createEncryptedInput(AUCTION_ADDRESS, userAddress);
-                        console.log('✅ Encrypted input created');
-                        
-                        encInput.add64(Number(bidInWei));
-                        console.log('✅ Value added to encrypted input');
-                        
-                        const encryptedData = encInput.encrypt();
-                        console.log('✅ Encryption complete');
-                        console.log('Encrypted data keys:', Object.keys(encryptedData));
-                        
-                        encryptedHandle = encryptedData.handles[0];
-                        inputProof = encryptedData.inputProof;
+                        encryptedHandle = encrypted.handles[0];
+                        inputProof = encrypted.inputProof;
                         
                         console.log('✅ FHE encryption successful');
-                        console.log('Handle length:', encryptedHandle.length);
-                        console.log('Proof length:', inputProof.length);
                     } catch (encError) {
-                        console.error('⚠️ FHE encryption failed:', encError);
-                        console.error('Encryption error details:', encError.message);
-                        fhevmInstance = null; // Disable for future attempts
+                        console.error('FHE encryption failed:', encError);
+                        fhevmInstance = null;
                     }
                 }
                 
-                // Fallback: Create mock encrypted data that the contract can accept
                 if (!fhevmInstance) {
-                    console.log('Using mock encryption (direct value)...');
-                    // Convert the bid to bytes format that contract expects
+                    console.log('Using fallback encryption');
                     encryptedHandle = ethers.zeroPadValue(ethers.toBeHex(bidInWei), 32);
-                    inputProof = '0x'; // Empty proof
-                    console.log('✅ Mock encryption prepared');
+                    inputProof = '0x';
                 }
                 
-                console.log('Encrypted handle:', encryptedHandle);
-                console.log('Proof:', inputProof);
+                showToast('info', 'Submitting', 'Sending to blockchain...');
                 
-                showToast('info', 'Submitting', 'Sending bid to blockchain...');
-                
-                // Call contract with encrypted bid
                 const tx = await auctionContract.bid(encryptedHandle, inputProof);
                 
-                showToast('info', 'Confirming', 'Waiting for transaction confirmation...');
-                console.log('📝 Transaction sent:', tx.hash);
+                showToast('info', 'Confirming', 'Waiting for confirmation...');
                 
                 const receipt = await tx.wait();
-                console.log('✅ Transaction confirmed:', receipt.hash);
                 
-                if (!userBids[auctionId]) {
-                    userBids[auctionId] = [];
-                }
-                
-                const encrypted = btoa(bidAmount.toString() + userAddress + Date.now());
+                if (!userBids[auctionId]) userBids[auctionId] = [];
                 
                 userBids[auctionId].push({
                     amount: bidAmount,
-                    encrypted: encrypted,
+                    encrypted: btoa(bidAmount + userAddress + Date.now()),
                     timestamp: Date.now(),
                     auctionName: auction.name,
                     auctionNumber: auction.number,
@@ -1207,31 +995,25 @@
                 showToast('success', 'Bid Placed', 'Your bid is on-chain!');
                 input.value = '';
                 
-                // Save to localStorage
                 localStorage.setItem('userBids_' + userAddress, JSON.stringify(userBids));
-                
                 renderUserBids();
                 await loadAuctionData();
 
             } catch (error) {
-                console.error('❌ Bid error:', error);
-                console.error('Error name:', error.name);
-                console.error('Error message:', error.message);
-                console.error('Error data:', error.data);
+                console.error('Bid error:', error);
                 
                 if (error.code === 'ACTION_REJECTED' || error.code === 4001) {
-                    showToast('error', 'Rejected', 'Transaction was rejected');
+                    showToast('error', 'Rejected', 'You rejected the transaction');
                 } else if (error.message && error.message.includes('insufficient funds')) {
-                    showToast('error', 'Insufficient Funds', 'Not enough ETH for gas fees');
+                    showToast('error', 'No Funds', 'Not enough ETH for gas');
                 } else if (error.message && error.message.includes('execution reverted')) {
-                    showToast('error', 'Contract Error', 'Bid rejected by contract. Check minimum bid.');
+                    showToast('error', 'Contract Error', 'Bid rejected - check min bid');
                 } else {
                     showToast('error', 'Failed', error.message || 'Could not place bid');
                 }
             }
         }
 
-        // ============ RENDER USER BIDS ============
         function renderUserBids() {
             const container = document.getElementById('bidList');
             
@@ -1245,13 +1027,12 @@
                 return;
             }
             
-            // Load from localStorage
             const saved = localStorage.getItem('userBids_' + userAddress);
             if (saved) {
                 try {
                     userBids = JSON.parse(saved);
                 } catch (e) {
-                    console.error('Error loading bids:', e);
+                    console.error('Load error:', e);
                 }
             }
 
@@ -1259,7 +1040,7 @@
                 container.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">📭</div>
-                        <p>No bids yet. Start bidding on the auction above!</p>
+                        <p>No bids yet. Start bidding above!</p>
                     </div>
                 `;
                 return;
@@ -1288,14 +1069,8 @@
             });
         }
 
-        // ============ SHOW TOAST ============
         function showToast(type, title, message) {
-            const icons = {
-                success: '✓',
-                error: '✕',
-                info: 'ℹ'
-            };
-
+            const icons = { success: '✓', error: '✕', info: 'ℹ' };
             const toast = document.createElement('div');
             toast.className = 'toast';
             toast.innerHTML = `
@@ -1305,42 +1080,25 @@
                     <div class="toast-message">${message}</div>
                 </div>
             `;
-            
             document.body.appendChild(toast);
-            
             setTimeout(() => {
-                toast.style.animation = 'slideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1) reverse';
+                toast.style.animation = 'slideIn 0.4s reverse';
                 setTimeout(() => toast.remove(), 400);
             }, 3000);
         }
 
-        // ============ INITIALIZATION ============
-        // Initial render
         renderAuctions();
-
-        // Bind connect button
         document.getElementById('connectBtn').addEventListener('click', connectWallet);
+        setInterval(() => { if (auctions.length > 0) renderAuctions(); }, 60000);
 
-        // Auto-refresh auction times
-        setInterval(() => {
-            if (auctions.length > 0) renderAuctions();
-        }, 60000);
-
-        // Smooth scrolling for anchor links
         document.querySelectorAll('a[href^="#"]').forEach(anchor => {
             anchor.addEventListener('click', function (e) {
                 e.preventDefault();
                 const target = document.querySelector(this.getAttribute('href'));
-                if (target) {
-                    target.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'start'
-                    });
-                }
+                if (target) target.scrollIntoView({ behavior: 'smooth' });
             });
         });
 
-        // Filter tabs
         document.querySelectorAll('.filter-tab').forEach(tab => {
             tab.addEventListener('click', function() {
                 document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
@@ -1348,12 +1106,9 @@
             });
         });
 
-        // Check if libraries loaded
-        console.log('🚀 Script loaded');
-        console.log('Ethers.js:', typeof ethers !== 'undefined' ? '✅' : '❌');
-        console.log('fhevmjs:', typeof window.fhevm !== 'undefined' ? '✅' : '❌');
-        console.log('Auction Address:', AUCTION_ADDRESS);
-        console.log('NFT Address:', NFT_ADDRESS);
+        console.log('🚀 Sealed Auction dApp loaded');
+        console.log('Auction:', AUCTION_ADDRESS);
+        console.log('NFT:', NFT_ADDRESS);
     </script>
 </body>
 </html>
