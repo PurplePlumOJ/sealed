@@ -778,7 +778,7 @@
 
         async function createFhevmInstance() {
             try {
-                showToast('info', 'Initializing FHE', 'Loading encryption system...');
+                showToast('info', 'Initializing FHE', 'Loading encryption...');
                 
                 let attempts = 0;
                 while (!window.fhevmLoaded && attempts < 50) {
@@ -792,21 +792,34 @@
                 await window.fhevmLib.initFhevm();
                 console.log('✅ WASM initialized');
                 
-                console.log('Creating instance with complete config...');
+                // Get network info
+                const network = await provider.getNetwork();
+                const chainId = +network.chainId.toString();
+                console.log('Chain ID:', chainId);
+                
+                // Fetch public key from FHE library contract (OFFICIAL METHOD from Zama docs)
+                console.log('Fetching public key from FHE library...');
+                const publicKey = await provider.call({
+                    from: null,
+                    to: "0x000000000000000000000000000000000000005d", // FHE lib address for Sepolia
+                    data: "0xd9d47bb001" // fhePubKey(bytes1) selector
+                });
+                
+                console.log('Public key received:', publicKey.substring(0, 50) + '...');
+                
+                // Create instance with ONLY chainId and publicKey (official method)
+                console.log('Creating FHEVM instance...');
                 fhevmInstance = await window.fhevmLib.createInstance({
-                    networkUrl: window.ethereum,
-                    gatewayUrl: "https://gateway.sepolia.zama.ai/",
-                    kmsContractAddress: "0x1364cBBf2cDF5032C47d8226a6f6FBD2AFCDacAC",
-                    aclContractAddress: "0x687820221192C5B662b25367F70076A37bc79b6c"
+                    chainId,
+                    publicKey
                 });
                 
                 console.log('✅ FHEVM instance created successfully');
-                showToast('success', 'FHE Ready', 'Encryption initialized!');
+                showToast('success', 'FHE Ready', 'Encryption ready!');
                 return fhevmInstance;
             } catch (error) {
                 console.error('FHE init error:', error);
-                console.error('Error details:', error.message);
-                showToast('error', 'FHE Unavailable', 'Contract will reject bids without proper FHE encryption');
+                showToast('error', 'FHE Unavailable', 'FHEVM not available on this network');
                 return null;
             }
         }
