@@ -792,20 +792,21 @@
                 await window.fhevmLib.initFhevm();
                 console.log('✅ WASM initialized');
                 
-                // CORRECT: Must provide provider as networkUrl
-                console.log('Creating instance with provider...');
+                console.log('Creating instance with complete config...');
                 fhevmInstance = await window.fhevmLib.createInstance({
-                    networkUrl: window.ethereum, // Pass the EIP1193 provider!
+                    networkUrl: window.ethereum,
                     gatewayUrl: "https://gateway.sepolia.zama.ai/",
-                    aclAddress: "0x687820221192C5B662b25367F70076A37bc79b6c"
+                    kmsContractAddress: "0x1364cBBf2cDF5032C47d8226a6f6FBD2AFCDacAC",
+                    aclContractAddress: "0x687820221192C5B662b25367F70076A37bc79b6c"
                 });
                 
-                console.log('✅ FHEVM instance created');
+                console.log('✅ FHEVM instance created successfully');
                 showToast('success', 'FHE Ready', 'Encryption initialized!');
                 return fhevmInstance;
             } catch (error) {
                 console.error('FHE init error:', error);
-                showToast('error', 'FHE Error', 'Using fallback mode');
+                console.error('Error details:', error.message);
+                showToast('error', 'FHE Unavailable', 'Contract will reject bids without proper FHE encryption');
                 return null;
             }
         }
@@ -973,10 +974,9 @@
                 }
                 
                 if (!fhevmInstance) {
-                    console.log('Using fallback - direct value as bytes32');
-                    // For fallback, send the value directly as bytes32
-                    encryptedHandle = ethers.zeroPadValue(ethers.toBeHex(bidInWei), 32);
-                    inputProof = '0x';
+                    console.log('⚠️ FHE not initialized - bidding will fail');
+                    showToast('error', 'Cannot Bid', 'FHE encryption not available. Contract requires proper encrypted data.');
+                    return;
                 }
                 
                 console.log('Final handle:', encryptedHandle);
