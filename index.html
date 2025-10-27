@@ -821,26 +821,45 @@
                 showToast('info', 'Initializing FHE', 'Setting up encryption system...');
                 console.log('🔐 Creating FHEVM instance for Sepolia...');
                 
-                // Official Zama Sepolia Configuration (from Sept 2025 docs)
-                const fhevmConfig = {
-                    verifyingContractAddress: "0x7048C39f048125eDa9d678AEbaDfB22F7900a29F",
-                    kmsContractAddress: "0x1364cBBf2cDF5032C47d8226a6f6FBD2AFCDacAC",
-                    aclContractAddress: "0x687820221192C5B662b25367F70076A37bc79b6c",
-                    relayerUrl: 'https://relayer.testnet.zama.cloud',
-                    gatewayChainId: 11155111, // Sepolia
-                };
+                // Get network info
+                const network = await provider.getNetwork();
+                const chainId = +network.chainId.toString();
+                console.log('Chain ID:', chainId);
                 
-                console.log('Config:', fhevmConfig);
+                // Try to fetch public key from FHE library contract on Sepolia
+                console.log('Fetching public key from FHE library...');
+                const ret = await provider.call({
+                    to: "0x000000000000000000000000000000000000005d",
+                    data: "0xd9d47bb001", // fhePubKey(bytes1) selector + 01
+                });
+                
+                console.log('Raw return:', ret);
+                
+                if (ret === '0x' || ret.length < 66) {
+                    throw new Error('FHE library not deployed or returned empty data');
+                }
+                
+                const decoded = ethers.AbiCoder.defaultAbiCoder().decode(["bytes"], ret);
+                const publicKey = decoded[0];
+                
+                console.log('✅ Public key fetched:', publicKey.substring(0, 50) + '...');
+                console.log('Public key length:', publicKey.length);
                 
                 // Initialize WASM
                 showToast('info', 'Loading WASM', 'Initializing encryption library...');
+                console.log('Initializing WASM...');
                 await window.fhevm.initFhevm();
                 console.log('✅ WASM initialized');
                 
-                // Create instance with official Sepolia config
-                fhevmInstance = await window.fhevm.createInstance(fhevmConfig);
+                // Create instance
+                console.log('Creating instance with chainId:', chainId);
+                fhevmInstance = await window.fhevm.createInstance({ 
+                    chainId, 
+                    publicKey 
+                });
                 
                 console.log('✅ FHEVM instance created successfully');
+                console.log('Instance:', fhevmInstance);
                 showToast('success', 'FHE Ready', 'Encryption system initialized');
                 
                 return fhevmInstance;
@@ -850,14 +869,17 @@
                 console.error('Error message:', error.message);
                 console.error('Error stack:', error.stack);
                 
-                // More specific error messages
-                if (error.message && error.message.includes('fetch')) {
-                    showToast('error', 'Network Error', 'Could not reach Zama relayer. Check connection.');
+                // Specific error handling
+                if (error.message && error.message.includes('empty data')) {
+                    showToast('error', 'FHE Not Deployed', 'FHEVM library not found on Sepolia');
                 } else if (error.message && error.message.includes('WASM')) {
-                    showToast('error', 'WASM Load Failed', 'Could not load encryption library');
+                    showToast('error', 'WASM Failed', 'Could not load encryption library');
+                } else if (error.message && error.message.includes('fetch')) {
+                    showToast('error', 'Network Error', 'Could not load WASM files');
                 } else {
-                    showToast('error', 'FHE Error', error.message || 'Could not initialize encryption');
+                    showToast('error', 'FHE Error', error.message || 'Initialization failed');
                 }
+                
                 throw error;
             }
         }
@@ -953,14 +975,15 @@
 
                 showToast('success', 'Connected', 'Wallet connected successfully');
                 
-                // Initialize FHEVM
+                // Initialize FHEVM (optional - will fallback if it fails)
                 console.log('🔐 Initializing FHEVM...');
                 try {
                     await createFhevmInstance();
                     console.log('✅ FHEVM initialized');
                 } catch (fheError) {
-                    console.error('⚠️ FHEVM initialization failed:', fheError);
-                    // Continue without FHE - user can still interact with UI
+                    console.warn('⚠️ FHEVM initialization failed, will use fallback mode:', fheError);
+                    fhevmInstance = null; // Set to null so we use fallback
+                    showToast('info', 'Fallback Mode', 'FHE not available, using direct mode');
                 }
                 
                 // Load auction data
