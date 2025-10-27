@@ -788,14 +788,16 @@
                 
                 if (!window.fhevmLoaded) throw new Error('fhevmjs not loaded');
                 
+                console.log('Initializing FHEVM WASM...');
                 await window.fhevmLib.initFhevm();
+                console.log('✅ WASM initialized');
                 
-                // CORRECT CONFIGURATION FOR SEPOLIA
+                // CORRECT: Must provide provider as networkUrl
+                console.log('Creating instance with provider...');
                 fhevmInstance = await window.fhevmLib.createInstance({
-                    verifyingContractAddress: "0x7048C39f048125eDa9d678AEbaDfB22F7900a29F",
-                    kmsContractAddress: "0x1364cBBf2cDF5032C47d8226a6f6FBD2AFCDacAC",
-                    aclContractAddress: "0x687820221192C5B662b25367F70076A37bc79b6c",
-                    gatewayChainId: 11155111
+                    networkUrl: window.ethereum, // Pass the EIP1193 provider!
+                    gatewayUrl: "https://gateway.sepolia.zama.ai/",
+                    aclAddress: "0x687820221192C5B662b25367F70076A37bc79b6c"
                 });
                 
                 console.log('✅ FHEVM instance created');
